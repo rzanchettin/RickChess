@@ -298,8 +298,30 @@ namespace RickChess
         {
             try
             {
+                // Compute material value of a captured-pieces list
+                int PieceListValue(List<(string Name, string Color)> list)
+                {
+                    int sum = 0;
+                    foreach (var it in list)
+                    {
+                        var nm = (it.Name ?? "").ToLower();
+                        if (nm == "peão" || nm == "peao") sum += 1;
+                        else if (nm == "cavalo" || nm == "bispo") sum += 3;
+                        else if (nm == "torre") sum += 5;
+                        else if (nm == "dama") sum += 9;
+                    }
+                    return sum;
+                }
+
+                // Net score for each side = value of pieces it captured minus value of pieces it lost.
+                // capturedBlack = black pieces captured (i.e. captured BY white); capturedWhite = white pieces captured (i.e. captured BY black)
+                int blackPiecesValue = PieceListValue(capturedBlack);
+                int whitePiecesValue = PieceListValue(capturedWhite);
+                int netWhiteScore = blackPiecesValue - whitePiecesValue;
+                int netBlackScore = whitePiecesValue - blackPiecesValue;
+
                 // helper to render a list into a PictureBox
-                void RenderListToPictureBox(List<(string Name, string Color)> list, PictureBox pic)
+                void RenderListToPictureBox(List<(string Name, string Color)> list, PictureBox pic, int netScore)
                 {
                     if (pic == null) return;
                     int w = Math.Max(1, pic.Width);
@@ -338,23 +360,17 @@ namespace RickChess
                         // score text color: white when rendering captured white pieces, black otherwise
                         var scoreColor = (pic == picCapturedWhite) ? Color.White : Color.FromArgb(220, Color.Black);
                         using var scoreBrush = new SolidBrush(scoreColor);
-                        // compute score
-                        int score = 0;
-                        foreach (var it in list)
+                        // only show a score when this side has a positive material advantage;
+                        // a negative or zero net leaves the score blank for this color
+                        string scoreText = netScore > 0 ? "+" + netScore.ToString() : "";
+                        if (scoreText.Length > 0)
                         {
-                            var nm = (it.Name ?? "").ToLower();
-                            if (nm == "peão" || nm == "peao") score += 1;
-                            else if (nm == "cavalo" || nm == "bispo") score += 3;
-                            else if (nm == "torre") score += 5;
-                            else if (nm == "dama") score += 9;
+                            var textSize = g.MeasureString(scoreText, scoreFont);
+                            // draw score at left, vertically centered
+                            g.DrawString(scoreText, scoreFont, scoreBrush, new PointF(x, (h - textSize.Height) / 2f));
+                            // advance x to leave space for score + gap
+                            x += (int)Math.Ceiling(textSize.Width) + padding;
                         }
-
-                        string scoreText = score.ToString();
-                        var textSize = g.MeasureString(scoreText, scoreFont);
-                        // draw score at left, vertically centered
-                        g.DrawString(scoreText, scoreFont, scoreBrush, new PointF(x, (h - textSize.Height) / 2f));
-                        // advance x to leave space for score + gap
-                        x += (int)Math.Ceiling(textSize.Width) + padding;
 
                         // draw thumbnails after score
                         for (int i = 0; i < n; i++)
@@ -387,8 +403,8 @@ namespace RickChess
                     old?.Dispose();
                 }
 
-                RenderListToPictureBox(capturedBlack, picCapturedBlack);
-                RenderListToPictureBox(capturedWhite, picCapturedWhite);
+                RenderListToPictureBox(capturedBlack, picCapturedBlack, netWhiteScore);
+                RenderListToPictureBox(capturedWhite, picCapturedWhite, netBlackScore);
             }
             catch
             {
@@ -468,6 +484,7 @@ namespace RickChess
         public FormRickChess()
         {
             InitializeComponent();
+            UpdateCapturedPanelOrder();
             InitializeBoardPieces();
             picBoard.Paint += PicBoard_Paint;
             this.Resize += FormRickChess_Resize;
@@ -713,10 +730,35 @@ namespace RickChess
             }
         }
 
+        // Reorders the captured-pieces boxes so the box matching the color sitting
+        // at the bottom of the board is also shown at the bottom of the right panel.
+        // Uses explicit Top/Bottom docks (instead of stacking two Dock=Top controls)
+        // so the placement doesn't depend on ambiguous z-order/add-order behavior.
+        private void UpdateCapturedPanelOrder()
+        {
+            pnlCaptured.SuspendLayout();
+            if (isFlipped)
+            {
+                // black sits at the bottom of the board -> show captured white pieces at the bottom
+                picCapturedWhite.Dock = DockStyle.Bottom;
+                picCapturedBlack.Dock = DockStyle.Top;
+            }
+            else
+            {
+                // white sits at the bottom of the board -> show captured black pieces at the bottom
+                picCapturedBlack.Dock = DockStyle.Bottom;
+                picCapturedWhite.Dock = DockStyle.Top;
+            }
+            pnlCaptured.ResumeLayout(true);
+        }
+
         private void FlipBoard()
         {
             // Toggle flip flag
             isFlipped = !isFlipped;
+
+            // Keep the captured-pieces panel order in sync with the new board orientation
+            UpdateCapturedPanelOrder();
 
             // Rotate the board 180 degrees so pieces and coordinates invert consistently.
             var newBoard = new CellInfo[8, 8];
